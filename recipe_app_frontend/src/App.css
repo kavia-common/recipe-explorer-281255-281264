@@ -10,8 +10,22 @@
   --bg: #f6f4ff; /* stronger violet tint (still very light) */
   --surface: #ffffff;
   --text: #0b1220;
-  --muted: rgba(11, 18, 32, 0.72);
-  --border: rgba(11, 18, 32, 0.12);
+
+  /*
+    Accessibility: increase contrast for secondary text and borders.
+    - Muted text: darker than before so it meets contrast on light surfaces.
+    - Border: slightly stronger so boundaries are visible.
+  */
+  --muted: rgba(11, 18, 32, 0.84);
+  --border: rgba(11, 18, 32, 0.22);
+
+  /* High-contrast "hint" text (placeholders / helper text) */
+  --hint: rgba(11, 18, 32, 0.62);
+
+  /* Disabled state tokens */
+  --disabled-text: rgba(11, 18, 32, 0.55);
+  --disabled-bg: rgba(11, 18, 32, 0.06);
+  --disabled-border: rgba(11, 18, 32, 0.18);
 
   /* Stronger depth */
   --shadow: 0 22px 56px rgba(11, 18, 32, 0.14);
@@ -22,7 +36,11 @@
 
   --container: 1120px;
 
-  --focus: 0 0 0 6px rgba(255, 31, 168, 0.32);
+  /*
+    Accessibility: focus should be clearly visible on both light/dark.
+    Use a slightly stronger ring, plus allow components to add their own shadows.
+  */
+  --focus: 0 0 0 6px rgba(255, 31, 168, 0.42);
 
   /* More vivid hero gradient while keeping structure */
   --grad-hero: radial-gradient(
@@ -39,13 +57,20 @@
   --bg: #060913;
   --surface: rgba(17, 24, 39, 0.72);
   --text: #f9fafb;
-  --muted: rgba(249, 250, 251, 0.72);
-  --border: rgba(255, 255, 255, 0.16);
+
+  /* Accessibility: slightly brighter muted text + stronger borders in dark mode */
+  --muted: rgba(249, 250, 251, 0.82);
+  --border: rgba(255, 255, 255, 0.22);
+  --hint: rgba(249, 250, 251, 0.64);
+
+  --disabled-text: rgba(249, 250, 251, 0.56);
+  --disabled-bg: rgba(255, 255, 255, 0.08);
+  --disabled-border: rgba(255, 255, 255, 0.18);
 
   --shadow: 0 26px 70px rgba(0, 0, 0, 0.5);
   --shadow-sm: 0 16px 40px rgba(0, 0, 0, 0.36);
 
-  --focus: 0 0 0 6px rgba(255, 31, 168, 0.3);
+  --focus: 0 0 0 6px rgba(255, 31, 168, 0.5);
 
   --grad-hero: radial-gradient(
       1200px 420px at 12% 0%,
@@ -59,6 +84,23 @@
 
 * {
   box-sizing: border-box;
+}
+
+/* Accessibility: ensure keyboard focus is visible even if a component forgets a focus style */
+:where(a, button, input, select, textarea, [role="button"], [tabindex]):focus-visible {
+  outline: 3px solid rgba(255, 31, 168, 0.9);
+  outline-offset: 3px;
+}
+
+/*
+  Accessibility: consistent disabled affordance.
+  We only style native [disabled] to avoid changing current behavior of "ghost" buttons etc.
+*/
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: not-allowed;
 }
 
 .App {
@@ -89,8 +131,8 @@
 /* Buttons */
 .Btn {
   appearance: none;
-  border: 1px solid rgba(109, 40, 255, 0.28);
-  background: linear-gradient(180deg, rgba(255, 31, 168, 0.24), rgba(109, 40, 255, 0.1));
+  border: 1px solid rgba(109, 40, 255, 0.38); /* stronger boundary */
+  background: linear-gradient(180deg, rgba(255, 31, 168, 0.28), rgba(109, 40, 255, 0.12));
   color: var(--text);
   border-radius: 999px;
   padding: 10px 14px;
@@ -98,9 +140,20 @@
   font-size: 14px;
   cursor: pointer;
   transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease,
-    border-color 0.15s ease, filter 0.15s ease;
+    border-color 0.15s ease, filter 0.15s ease, opacity 0.15s ease;
   box-shadow: 0 12px 28px rgba(109, 40, 255, 0.16), 0 10px 22px rgba(11, 18, 32, 0.08);
   position: relative;
+}
+
+.Btn:disabled,
+.Btn[aria-disabled="true"] {
+  opacity: 0.78;
+  transform: none;
+  filter: none;
+  box-shadow: none;
+  background: var(--disabled-bg);
+  color: var(--disabled-text);
+  border-color: var(--disabled-border);
 }
 
 /* Subtle sheen overlay (no layout impact) */
@@ -137,7 +190,16 @@
 .Btn--ghost {
   background: transparent;
   box-shadow: none;
-  border-color: rgba(11, 18, 32, 0.16);
+  border-color: rgba(11, 18, 32, 0.26); /* stronger for visibility */
+}
+
+[data-theme="dark"] .Btn--ghost {
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.Btn--ghost:disabled,
+.Btn--ghost[aria-disabled="true"] {
+  background: transparent;
 }
 
 .Btn--ghost::before {
@@ -284,16 +346,16 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  border: 1px solid rgba(255, 46, 166, 0.18);
-  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(255, 46, 166, 0.3); /* stronger boundary */
+  background: rgba(255, 255, 255, 0.8);
   border-radius: 999px;
   padding: 10px 12px;
   box-shadow: var(--shadow-sm);
 }
 
 [data-theme="dark"] .Search {
-  border-color: rgba(255, 46, 166, 0.22);
-  background: rgba(17, 24, 39, 0.58);
+  border-color: rgba(255, 46, 166, 0.34);
+  background: rgba(17, 24, 39, 0.62);
 }
 
 .Search__icon {
@@ -319,19 +381,25 @@
 }
 
 .Search__input::placeholder {
-  color: rgba(17, 24, 39, 0.45);
+  color: var(--hint);
 }
 
 [data-theme="dark"] .Search__input::placeholder {
-  color: rgba(249, 250, 251, 0.45);
+  color: var(--hint);
 }
 
 .Search__hint {
   font-size: 12px;
-  color: var(--muted);
-  border: 1px solid var(--border);
+  color: var(--text);
+  border: 1px solid rgba(11, 18, 32, 0.28);
   border-radius: 10px;
   padding: 4px 8px;
+  background: rgba(11, 18, 32, 0.04);
+}
+
+[data-theme="dark"] .Search__hint {
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .Search__clear {
@@ -349,6 +417,7 @@
 }
 
 .Search:focus-within {
+  border-color: rgba(255, 31, 168, 0.7);
   box-shadow: var(--shadow-sm), var(--focus);
 }
 
@@ -360,8 +429,8 @@
 }
 
 .TagPill {
-  border: 1px solid rgba(109, 40, 255, 0.22);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.62));
+  border: 1px solid rgba(109, 40, 255, 0.32); /* stronger boundary */
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.66));
   color: var(--text);
   border-radius: 999px;
   padding: 8px 12px;
@@ -369,9 +438,21 @@
   font-weight: 850;
   cursor: pointer;
   transition: background 0.15s ease, transform 0.15s ease, border-color 0.15s ease, filter 0.15s ease,
-    box-shadow 0.15s ease;
+    box-shadow 0.15s ease, opacity 0.15s ease;
   box-shadow: 0 10px 22px rgba(11, 18, 32, 0.08);
   position: relative;
+}
+
+.TagPill:disabled,
+.TagPill[aria-disabled="true"] {
+  opacity: 0.78;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+  filter: none;
+  background: var(--disabled-bg);
+  color: var(--disabled-text);
+  border-color: var(--disabled-border);
 }
 
 .TagPill::before {
@@ -414,8 +495,9 @@
 
 .TagPill--active {
   background: linear-gradient(135deg, #00e6a8 0%, #ff1fa8 62%, #6d28ff 120%);
-  color: #03140f;
-  border-color: rgba(0, 230, 168, 0.8);
+  /* Darker, higher-contrast text over bright gradient */
+  color: #020a08;
+  border-color: rgba(0, 230, 168, 0.86);
   box-shadow: 0 18px 42px rgba(0, 230, 168, 0.22), 0 14px 30px rgba(255, 31, 168, 0.16);
 }
 
@@ -461,16 +543,16 @@
 
 .Card {
   grid-column: span 4;
-  border: 1px solid rgba(11, 18, 32, 0.14);
-  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(11, 18, 32, 0.22); /* stronger separation */
+  background: rgba(255, 255, 255, 0.88);
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
   overflow: hidden;
 }
 
 [data-theme="dark"] .Card {
-  border-color: rgba(255, 255, 255, 0.14);
-  background: rgba(17, 24, 39, 0.58);
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(17, 24, 39, 0.6);
 }
 
 .Card__click {
@@ -527,13 +609,13 @@
 
 .Card__meta {
   font-size: 12px;
-  color: rgba(17, 24, 39, 0.65);
+  color: rgba(17, 24, 39, 0.78);
   font-weight: 800;
   margin-bottom: 10px;
 }
 
 [data-theme="dark"] .Card__meta {
-  color: rgba(249, 250, 251, 0.6);
+  color: rgba(249, 250, 251, 0.74);
 }
 
 .Card__tags {
@@ -546,13 +628,17 @@
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
-  border: 1px solid rgba(255, 31, 168, 0.34);
+  border: 1px solid rgba(255, 31, 168, 0.48); /* stronger boundary */
   padding: 5px 10px;
   font-size: 12px;
   font-weight: 850;
-  background: linear-gradient(180deg, rgba(255, 31, 168, 0.2), rgba(109, 40, 255, 0.1));
+  background: linear-gradient(180deg, rgba(255, 31, 168, 0.22), rgba(109, 40, 255, 0.12));
   box-shadow: 0 10px 20px rgba(255, 31, 168, 0.1);
   position: relative;
+}
+
+[data-theme="dark"] .Badge {
+  border-color: rgba(255, 31, 168, 0.52);
 }
 
 .Badge::before {
@@ -751,9 +837,9 @@
 
 /* Empty state */
 .EmptyState {
-  border: 1px dashed rgba(255, 46, 166, 0.52);
+  border: 1px dashed rgba(255, 46, 166, 0.72);
   border-radius: var(--radius);
-  background: linear-gradient(180deg, rgba(255, 46, 166, 0.09), rgba(124, 60, 255, 0.05));
+  background: linear-gradient(180deg, rgba(255, 46, 166, 0.1), rgba(124, 60, 255, 0.06));
   padding: 28px 18px;
   text-align: center;
   box-shadow: var(--shadow-sm);
@@ -813,11 +899,15 @@
   color: var(--text);
   font-weight: 800;
   text-decoration: none;
-  border-bottom: 1px solid transparent;
+  border-bottom: 2px solid transparent; /* thicker underline improves visibility without layout shift */
 }
 
 .Link:hover {
-  border-bottom-color: rgba(16, 185, 129, 0.5);
+  border-bottom-color: rgba(16, 185, 129, 0.75);
+}
+
+.Link:focus-visible {
+  border-bottom-color: rgba(255, 31, 168, 0.85);
 }
 
 /* Favorite chip */
@@ -825,17 +915,18 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  border: 1px solid var(--border);
+  border: 1px solid rgba(11, 18, 32, 0.26);
   border-radius: 999px;
   padding: 8px 10px;
-  background: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.62);
   color: var(--text);
   font-weight: 900;
   box-shadow: var(--shadow-sm);
 }
 
 [data-theme="dark"] .Chip {
-  background: rgba(17, 24, 39, 0.45);
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(17, 24, 39, 0.5);
 }
 
 .Chip__label {
@@ -843,12 +934,17 @@
 }
 
 .Chip__count {
-  background: rgba(16, 185, 129, 0.18);
-  border: 1px solid rgba(16, 185, 129, 0.28);
+  background: rgba(16, 185, 129, 0.22);
+  border: 1px solid rgba(16, 185, 129, 0.42);
+  color: rgba(2, 16, 12, 0.92);
   padding: 2px 8px;
   border-radius: 999px;
   font-size: 12px;
   font-weight: 900;
+}
+
+[data-theme="dark"] .Chip__count {
+  color: rgba(255, 255, 255, 0.92);
 }
 
 /* Responsive */
