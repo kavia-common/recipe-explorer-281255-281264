@@ -332,6 +332,177 @@ textarea:disabled {
   flex-wrap: wrap;
 }
 
+.AdvancedRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.AdvancedRow__left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.AdvancedRow__right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.AdvancedRow__select {
+  min-width: 220px;
+}
+
+.Select {
+  width: 100%;
+  border: 1px solid rgba(255, 46, 166, 0.3);
+  background: rgba(255, 255, 255, 0.82);
+  border-radius: 999px;
+  padding: 9px 12px;
+  font-weight: 800;
+  outline: none;
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
+
+[data-theme="dark"] .Select {
+  border-color: rgba(255, 46, 166, 0.34);
+  background: rgba(17, 24, 39, 0.62);
+}
+
+.Select:focus {
+  box-shadow: var(--shadow-sm), var(--focus);
+  border-color: rgba(255, 31, 168, 0.7);
+}
+
+.Toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(11, 18, 32, 0.22);
+  border-radius: 999px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.62);
+  color: var(--text);
+  font-weight: 900;
+  box-shadow: var(--shadow-sm);
+}
+
+[data-theme="dark"] .Toggle {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(17, 24, 39, 0.5);
+}
+
+.Toggle__text {
+  font-size: 13px;
+}
+
+.AdvancedPanel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.76);
+  box-shadow: var(--shadow-sm);
+  padding: 12px;
+}
+
+[data-theme="dark"] .AdvancedPanel {
+  background: rgba(17, 24, 39, 0.52);
+}
+
+.AdvancedGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.Field {
+  border: 1px solid rgba(11, 18, 32, 0.16);
+  border-radius: 16px;
+  background: rgba(11, 18, 32, 0.03);
+  padding: 10px;
+}
+
+[data-theme="dark"] .Field {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.Field--span2 {
+  grid-column: 1 / -1;
+}
+
+.Field__label {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 900;
+  margin-bottom: 8px;
+}
+
+.Field__row {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 8px;
+  align-items: center;
+}
+
+.Field__sep {
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.Field__input {
+  width: 100%;
+  border: 1px solid rgba(255, 46, 166, 0.3);
+  background: rgba(255, 255, 255, 0.82);
+  border-radius: 14px;
+  padding: 9px 10px;
+  font-weight: 800;
+  outline: none;
+  color: var(--text);
+}
+
+[data-theme="dark"] .Field__input {
+  border-color: rgba(255, 46, 166, 0.34);
+  background: rgba(17, 24, 39, 0.62);
+}
+
+.Field__input:focus {
+  box-shadow: var(--focus);
+  border-color: rgba(255, 31, 168, 0.7);
+}
+
+.Field__input::placeholder {
+  color: var(--hint);
+}
+
+.Field__hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--hint);
+  font-weight: 700;
+}
+
+.Chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.AdvancedPanel__footer {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
 .MetaText {
   font-size: 13px;
   color: var(--text);
@@ -1358,5 +1529,13 @@ button.Chip:active {
   }
   .Modal {
     padding: 10px;
+  }
+
+  .AdvancedRow__select {
+    min-width: 100%;
+  }
+
+  .AdvancedGrid {
+    grid-template-columns: 1fr;
   }
 }

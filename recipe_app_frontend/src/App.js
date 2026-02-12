@@ -143,6 +143,50 @@ const SEED_RECIPES = [
 const ALL_TAG = "All";
 const SHOPPING_LIST_STORAGE_KEY = "recipe_shopping_list_v1";
 
+const DIFFICULTY_ORDER = ["Easy", "Medium", "Hard"];
+const SORT_OPTIONS = [
+  { value: "title-asc", label: "Title (A → Z)" },
+  { value: "title-desc", label: "Title (Z → A)" },
+  { value: "time-asc", label: "Time (fast → slow)" },
+  { value: "time-desc", label: "Time (slow → fast)" },
+  { value: "calories-asc", label: "Calories (low → high)" },
+  { value: "calories-desc", label: "Calories (high → low)" },
+  { value: "difficulty-asc", label: "Difficulty (easy → hard)" },
+  { value: "difficulty-desc", label: "Difficulty (hard → easy)" },
+];
+
+function clampNumber(value, { min = -Infinity, max = Infinity } = {}) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return Math.max(min, Math.min(max, n));
+}
+
+function difficultyRank(value) {
+  const idx = DIFFICULTY_ORDER.indexOf(String(value || ""));
+  return idx >= 0 ? idx : DIFFICULTY_ORDER.length; // unknown last
+}
+
+function parseListFilter(raw) {
+  const v = String(raw || "").trim();
+  if (!v) return [];
+  return v
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+function includesAnyTags(recipeTags, requiredAny) {
+  if (!requiredAny || requiredAny.length === 0) return true;
+  const set = new Set((recipeTags || []).map((t) => normalizeText(t)));
+  return requiredAny.some((t) => set.has(normalizeText(t)));
+}
+
+function includesAllTags(recipeTags, requiredAll) {
+  if (!requiredAll || requiredAll.length === 0) return true;
+  const set = new Set((recipeTags || []).map((t) => normalizeText(t)));
+  return requiredAll.every((t) => set.has(normalizeText(t)));
+}
+
 function normalizeText(value) {
   return String(value || "")
     .toLowerCase()
@@ -216,6 +260,24 @@ function App() {
   const [query, setQuery] = useState("");
   const [selectedTag, setSelectedTag] = useState(ALL_TAG);
   const [selectedRecipeId, setSelectedRecipeId] = useState(() => getRecipeIdFromHash());
+
+  // Advanced browse controls (client-side only)
+  const [sortBy, setSortBy] = useState("title-asc");
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
+
+  // Numeric range filters (empty string means "unset" to preserve input UX)
+  const [timeMin, setTimeMin] = useState("");
+  const [timeMax, setTimeMax] = useState("");
+  const [calMin, setCalMin] = useState("");
+  const [calMax, setCalMax] = useState("");
+
+  // Multi-select style tag filters via comma-separated list
+  const [tagsAny, setTagsAny] = useState("");
+  const [tagsAll, setTagsAll] = useState("");
+
+  // Difficulty filter (multi)
+  const [difficultySelected, setDifficultySelected] = useState(() => new Set());
 
   const [favorites, setFavorites] = useState(() => {
     const raw = localStorage.getItem("recipe_favorites_v1");
@@ -331,13 +393,94 @@ function App() {
     return [ALL_TAG, ...Array.from(set).sort((a, b) => a.localeCompare(b))];
   }, [recipes]);
 
+  function resetAdvancedFilters() {
+    setFavoritesOnly(false);
+    setTimeMin("");
+    setTimeMax("");
+    setCalMin("");
+    setCalMax("");
+    setTagsAny("");
+    setTagsAll("");
+    setDifficultySelected(new Set());
+    setSortBy("title-asc");
+  }
+
+  const activeAdvancedCount = useMemo(() => {
+    let n = 0;
+    if (favoritesOnly) n += 1;
+    if (String(timeMin).trim() || String(timeMax).trim()) n += 1;
+    if (String(calMin).trim() || String(calMax).trim()) n += 1;
+    if (parseListFilter(tagsAny).length > 0) n += 1;
+    if (parseListFilter(tagsAll).length > 0) n += 1;
+    if (difficultySelected.size > 0) n += 1;
+    if (sortBy !== "title-asc") n += 1;
+    return n;
+  }, [favoritesOnly, timeMin, timeMax, calMin, calMax, tagsAny, tagsAll, difficultySelected, sortBy]);
+
   const filteredRecipes = useMemo(() => {
     const q = normalizeText(query);
-    return recipes
+
+    const tMin = clampNumber(timeMin, { min: 0, max: 24 * 60 });
+    const tMax = clampNumber(timeMax, { min: 0, max: 24 * 60 });
+
+    const cMin = clampNumber(calMin, { min: 0, max: 100000 });
+    const cMax = clampNumber(calMax, { min: 0, max: 100000 });
+
+    const anyTags = parseListFilter(tagsAny);
+    const allTags = parseListFilter(tagsAll);
+
+    const difficultySet = difficultySelected;
+
+    const base = recipes
       .filter((r) => (selectedTag === ALL_TAG ? true : (r.tags || []).includes(selectedTag)))
       .filter((r) => (q ? r._searchIndex.includes(q) : true))
-      .sort((a, b) => a.title.localeCompare(b.title));
-  }, [recipes, query, selectedTag]);
+      .filter((r) => (favoritesOnly ? favorites.includes(r.id) : true))
+      .filter((r) => (tMin == null ? true : Number(r.timeMinutes || 0) >= tMin))
+      .filter((r) => (tMax == null ? true : Number(r.timeMinutes || 0) <= tMax))
+      .filter((r) => (cMin == null ? true : Number(r.calories || 0) >= cMin))
+      .filter((r) => (cMax == null ? true : Number(r.calories || 0) <= cMax))
+      .filter((r) => includesAnyTags(r.tags || [], anyTags))
+      .filter((r) => includesAllTags(r.tags || [], allTags))
+      .filter((r) => (difficultySet.size > 0 ? difficultySet.has(r.difficulty) : true));
+
+    const sorted = [...base].sort((a, b) => {
+      switch (sortBy) {
+        case "title-desc":
+          return b.title.localeCompare(a.title);
+        case "time-asc":
+          return Number(a.timeMinutes || 0) - Number(b.timeMinutes || 0);
+        case "time-desc":
+          return Number(b.timeMinutes || 0) - Number(a.timeMinutes || 0);
+        case "calories-asc":
+          return Number(a.calories || 0) - Number(b.calories || 0);
+        case "calories-desc":
+          return Number(b.calories || 0) - Number(a.calories || 0);
+        case "difficulty-asc":
+          return difficultyRank(a.difficulty) - difficultyRank(b.difficulty) || a.title.localeCompare(b.title);
+        case "difficulty-desc":
+          return difficultyRank(b.difficulty) - difficultyRank(a.difficulty) || a.title.localeCompare(b.title);
+        case "title-asc":
+        default:
+          return a.title.localeCompare(b.title);
+      }
+    });
+
+    return sorted;
+  }, [
+    recipes,
+    query,
+    selectedTag,
+    favoritesOnly,
+    favorites,
+    timeMin,
+    timeMax,
+    calMin,
+    calMax,
+    tagsAny,
+    tagsAll,
+    difficultySelected,
+    sortBy,
+  ]);
 
   const selectedRecipe = useMemo(() => {
     if (!selectedRecipeId) return null;
@@ -686,9 +829,219 @@ function App() {
               <div className="Controls__meta" aria-live="polite">
                 <span className="MetaText">
                   Showing <strong>{filteredRecipes.length}</strong> of <strong>{recipes.length}</strong>
+                  {activeAdvancedCount ? (
+                    <>
+                      {" "}
+                      • <strong>{activeAdvancedCount}</strong> advanced
+                    </>
+                  ) : null}
                 </span>
                 <span className="MetaText MetaText--muted">Esc closes • / focuses search</span>
               </div>
+
+              <div className="AdvancedRow" aria-label="Advanced filters and sorting">
+                <div className="AdvancedRow__left">
+                  <button
+                    type="button"
+                    className="Btn Btn--small Btn--ghost"
+                    onClick={() => setShowAdvanced((p) => !p)}
+                    aria-expanded={showAdvanced}
+                    aria-controls="advanced-panel"
+                    title="Advanced filters and sorting"
+                  >
+                    {showAdvanced ? "Hide advanced" : "Advanced"}
+                    {activeAdvancedCount ? ` (${activeAdvancedCount})` : ""}
+                  </button>
+
+                  <div className="AdvancedRow__select">
+                    <label className="SrOnly" htmlFor="sort-by">
+                      Sort recipes
+                    </label>
+                    <select
+                      id="sort-by"
+                      className="Select"
+                      value={sortBy}
+                      onChange={(e) => setSortBy(e.target.value)}
+                      aria-label="Sort recipes by"
+                    >
+                      {SORT_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <label className="Toggle" title="Show only favorites">
+                    <input
+                      type="checkbox"
+                      checked={favoritesOnly}
+                      onChange={(e) => setFavoritesOnly(e.target.checked)}
+                    />
+                    <span className="Toggle__text">Favorites only</span>
+                  </label>
+                </div>
+
+                <div className="AdvancedRow__right">
+                  <button
+                    type="button"
+                    className="Btn Btn--small"
+                    onClick={() => {
+                      resetAdvancedFilters();
+                      setSelectedTag(ALL_TAG);
+                      setQuery("");
+                    }}
+                    disabled={
+                      !query &&
+                      selectedTag === ALL_TAG &&
+                      !favoritesOnly &&
+                      !String(timeMin).trim() &&
+                      !String(timeMax).trim() &&
+                      !String(calMin).trim() &&
+                      !String(calMax).trim() &&
+                      !String(tagsAny).trim() &&
+                      !String(tagsAll).trim() &&
+                      difficultySelected.size === 0 &&
+                      sortBy === "title-asc"
+                    }
+                    aria-label="Reset all filters and sorting"
+                  >
+                    Reset all
+                  </button>
+                </div>
+              </div>
+
+              {showAdvanced ? (
+                <div id="advanced-panel" className="AdvancedPanel" role="region" aria-label="Advanced filters">
+                  <div className="AdvancedGrid">
+                    <div className="Field">
+                      <div className="Field__label">Time (minutes)</div>
+                      <div className="Field__row">
+                        <input
+                          className="Field__input"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          placeholder="Min"
+                          value={timeMin}
+                          onChange={(e) => setTimeMin(e.target.value)}
+                          aria-label="Minimum time in minutes"
+                        />
+                        <span className="Field__sep" aria-hidden="true">
+                          –
+                        </span>
+                        <input
+                          className="Field__input"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          placeholder="Max"
+                          value={timeMax}
+                          onChange={(e) => setTimeMax(e.target.value)}
+                          aria-label="Maximum time in minutes"
+                        />
+                      </div>
+                      <div className="Field__hint">Example: 10–30</div>
+                    </div>
+
+                    <div className="Field">
+                      <div className="Field__label">Calories</div>
+                      <div className="Field__row">
+                        <input
+                          className="Field__input"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          placeholder="Min"
+                          value={calMin}
+                          onChange={(e) => setCalMin(e.target.value)}
+                          aria-label="Minimum calories"
+                        />
+                        <span className="Field__sep" aria-hidden="true">
+                          –
+                        </span>
+                        <input
+                          className="Field__input"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          placeholder="Max"
+                          value={calMax}
+                          onChange={(e) => setCalMax(e.target.value)}
+                          aria-label="Maximum calories"
+                        />
+                      </div>
+                      <div className="Field__hint">Example: 300–600</div>
+                    </div>
+
+                    <div className="Field">
+                      <div className="Field__label">Tags (match any)</div>
+                      <input
+                        className="Field__input"
+                        placeholder="e.g., Dinner, Quick"
+                        value={tagsAny}
+                        onChange={(e) => setTagsAny(e.target.value)}
+                        aria-label="Tags to match any (comma separated)"
+                      />
+                      <div className="Field__hint">Comma-separated. Any of these tags may match.</div>
+                    </div>
+
+                    <div className="Field">
+                      <div className="Field__label">Tags (match all)</div>
+                      <input
+                        className="Field__input"
+                        placeholder="e.g., Gluten-Free, Dinner"
+                        value={tagsAll}
+                        onChange={(e) => setTagsAll(e.target.value)}
+                        aria-label="Tags to match all (comma separated)"
+                      />
+                      <div className="Field__hint">Comma-separated. All tags must match.</div>
+                    </div>
+
+                    <div className="Field Field--span2">
+                      <div className="Field__label">Difficulty</div>
+                      <div className="Chips" role="group" aria-label="Difficulty filters">
+                        {DIFFICULTY_ORDER.map((d) => {
+                          const active = difficultySelected.has(d);
+                          return (
+                            <button
+                              key={d}
+                              type="button"
+                              className={`TagPill ${active ? "TagPill--active" : ""}`}
+                              aria-pressed={active}
+                              onClick={() =>
+                                setDifficultySelected((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(d)) next.delete(d);
+                                  else next.add(d);
+                                  return next;
+                                })
+                              }
+                            >
+                              {d}
+                            </button>
+                          );
+                        })}
+                        {difficultySelected.size ? (
+                          <button
+                            type="button"
+                            className="Btn Btn--small Btn--ghost"
+                            onClick={() => setDifficultySelected(new Set())}
+                            aria-label="Clear difficulty filter"
+                          >
+                            Clear
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="AdvancedPanel__footer">
+                    <span className="MetaText MetaText--muted">
+                      Advanced filters are client-side only and apply on top of tags + search.
+                    </span>
+                    <button className="Btn Btn--small Btn--ghost" type="button" onClick={resetAdvancedFilters}>
+                      Reset advanced
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
