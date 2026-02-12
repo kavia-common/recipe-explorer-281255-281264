@@ -9,8 +9,12 @@ body {
     "Apple Color Emoji", "Segoe UI Emoji";
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: var(--bg, #f9fafb);
-  color: var(--text, #111827);
+  background: var(--bg, #f7f6ff);
+  color: var(--text, #0b1220);
+}
+
+::selection {
+  background: rgba(255, 46, 166, 0.26);
 }
 
 code {
