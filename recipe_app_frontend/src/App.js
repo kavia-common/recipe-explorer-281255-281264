@@ -239,8 +239,86 @@ function App() {
   const [isCookMode, setIsCookMode] = useState(false);
   const [cookStepIndex, setCookStepIndex] = useState(0);
 
+  // Ingredient scaling (client-side only)
+  const [servingsOverride, setServingsOverride] = useState(null);
+
   const searchInputRef = useRef(null);
   const shoppingInputRef = useRef(null);
+
+  function clampServings(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 1;
+    return Math.max(1, Math.min(99, Math.round(n)));
+  }
+
+  function parseNumberToken(token) {
+    const t = String(token || "").trim();
+
+    // Mixed number: "1 1/2"
+    const mixed = t.match(/^(\d+)\s+(\d+)\s*\/\s*(\d+)$/);
+    if (mixed) {
+      const a = Number(mixed[1]);
+      const b = Number(mixed[2]);
+      const c = Number(mixed[3]);
+      if (Number.isFinite(a) && Number.isFinite(b) && Number.isFinite(c) && c !== 0) return a + b / c;
+    }
+
+    // Fraction: "1/2"
+    const frac = t.match(/^(\d+)\s*\/\s*(\d+)$/);
+    if (frac) {
+      const a = Number(frac[1]);
+      const b = Number(frac[2]);
+      if (Number.isFinite(a) && Number.isFinite(b) && b !== 0) return a / b;
+    }
+
+    // Decimal/comma decimal or integer: "2", "2.5", "2,5"
+    const normalized = t.replace(",", ".");
+    const n = Number(normalized);
+    if (Number.isFinite(n)) return n;
+
+    return null;
+  }
+
+  function formatScaledNumber(value) {
+    // Keep this intentionally simple & predictable.
+    // - Integers: "2"
+    // - Otherwise: one decimal place, trimming trailing .0
+    if (!Number.isFinite(value)) return "";
+    const roundedInt = Math.round(value);
+    if (Math.abs(value - roundedInt) < 1e-9) return String(roundedInt);
+
+    const oneDec = Math.round(value * 10) / 10;
+    return String(oneDec).replace(/\.0$/, "");
+  }
+
+  /**
+   * Scale an ingredient line by the servings ratio.
+   * We only scale a leading numeric token if present. Examples:
+   * - "200g spaghetti" -> "400g spaghetti" (for 2x)
+   * - "1/2 cup sugar" -> "1 cup sugar" (for 2x)
+   * - "2 cans chickpeas, drained" -> "3 cans..." (for 1.5x)
+   * If we can't confidently parse a leading number, we return the original line.
+   */
+  function scaleIngredientLine(line, scale) {
+    const raw = String(line || "");
+    if (!raw.trim() || !Number.isFinite(scale) || scale === 1) return raw;
+
+    // Match a leading numeric token optionally followed by a unit stuck to it (e.g., "200g", "1.5tbsp").
+    const m = raw.match(/^\s*([0-9]+(?:[.,][0-9]+)?|[0-9]+\s*\/\s*[0-9]+)([a-zA-Z]+)?(\s+.*)?$/u);
+    if (!m) return raw;
+
+    const amountToken = m[1];
+    const unitSuffix = m[2] || "";
+    const rest = m[3] || "";
+
+    const amount = parseNumberToken(amountToken);
+    if (amount == null) return raw;
+
+    const scaled = amount * scale;
+    const formatted = formatScaledNumber(scaled);
+
+    return `${formatted}${unitSuffix}${rest}`;
+  }
 
   const recipes = useMemo(() => {
     // Precompute a tiny search index so filtering stays snappy.
@@ -266,10 +344,11 @@ function App() {
     return recipes.find((r) => r.id === selectedRecipeId) || null;
   }, [recipes, selectedRecipeId]);
 
-  // Reset cook mode when switching recipes.
+  // Reset cook mode (and servings override) when switching recipes.
   useEffect(() => {
     setIsCookMode(false);
     setCookStepIndex(0);
+    setServingsOverride(null);
   }, [selectedRecipeId]);
 
   // Clamp step index if instructions length changes.
@@ -765,38 +844,112 @@ function App() {
 
               <div className="Details__body">
                 <div className="Panel">
-                  <div className="Panel__head">
-                    <h2 className="H2">Ingredients</h2>
-                    <button
-                      className="Btn Btn--small Btn--ghost"
-                      type="button"
-                      onClick={() => {
-                        addItemsToShoppingList(selectedRecipe.ingredients);
-                        openShoppingList();
-                      }}
-                    >
-                      Add all
-                    </button>
-                  </div>
+                  {(() => {
+                    const baseServings = clampServings(selectedRecipe.servings || 1);
+                    const scaledServings =
+                      servingsOverride == null ? baseServings : clampServings(servingsOverride);
+                    const scale = baseServings > 0 ? scaledServings / baseServings : 1;
 
-                  <ul className="List">
-                    {selectedRecipe.ingredients.map((item) => (
-                      <li key={item} className="List__item">
-                        <span className="List__bullet" aria-hidden="true">
-                          •
-                        </span>
-                        <span className="List__text">{item}</span>
-                        <button
-                          className="Btn Btn--small Btn--ghost"
-                          type="button"
-                          onClick={() => addItemsToShoppingList([item])}
-                          aria-label={`Add to shopping list: ${item}`}
-                        >
-                          + List
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
+                    const scaledIngredients = (selectedRecipe.ingredients || []).map((line) =>
+                      scaleIngredientLine(line, scale)
+                    );
+
+                    return (
+                      <>
+                        <div className="Panel__head">
+                          <div className="Panel__headLeft">
+                            <h2 className="H2">Ingredients</h2>
+
+                            <div className="Servings" aria-label="Adjust servings">
+                              <span className="Servings__label">Servings</span>
+                              <div className="Servings__stepper" role="group" aria-label="Servings controls">
+                                <button
+                                  className="Btn Btn--small Btn--ghost"
+                                  type="button"
+                                  onClick={() =>
+                                    setServingsOverride((prev) =>
+                                      clampServings((prev == null ? baseServings : prev) - 1)
+                                    )
+                                  }
+                                  disabled={scaledServings <= 1}
+                                  aria-label="Decrease servings"
+                                >
+                                  −
+                                </button>
+                                <output className="Servings__value" aria-live="polite">
+                                  {scaledServings}
+                                </output>
+                                <button
+                                  className="Btn Btn--small Btn--ghost"
+                                  type="button"
+                                  onClick={() =>
+                                    setServingsOverride((prev) =>
+                                      clampServings((prev == null ? baseServings : prev) + 1)
+                                    )
+                                  }
+                                  aria-label="Increase servings"
+                                >
+                                  +
+                                </button>
+
+                                {scaledServings !== baseServings ? (
+                                  <button
+                                    className="Btn Btn--small Btn--ghost"
+                                    type="button"
+                                    onClick={() => setServingsOverride(null)}
+                                    aria-label={`Reset servings to ${baseServings}`}
+                                    title={`Reset to ${baseServings}`}
+                                  >
+                                    Reset
+                                  </button>
+                                ) : null}
+                              </div>
+                            </div>
+                          </div>
+
+                          <button
+                            className="Btn Btn--small Btn--ghost"
+                            type="button"
+                            onClick={() => {
+                              // Keep shopping list behavior unchanged: add the original ingredient lines.
+                              addItemsToShoppingList(selectedRecipe.ingredients);
+                              openShoppingList();
+                            }}
+                          >
+                            Add all
+                          </button>
+                        </div>
+
+                        <ul className="List">
+                          {scaledIngredients.map((scaledLine, idx) => {
+                            const originalLine = selectedRecipe.ingredients[idx];
+                            return (
+                              <li key={`${selectedRecipe.id}-ing-${idx}`} className="List__item">
+                                <span className="List__bullet" aria-hidden="true">
+                                  •
+                                </span>
+                                <span className="List__text">{scaledLine}</span>
+                                <button
+                                  className="Btn Btn--small Btn--ghost"
+                                  type="button"
+                                  onClick={() => addItemsToShoppingList([originalLine])}
+                                  aria-label={`Add to shopping list: ${originalLine}`}
+                                >
+                                  + List
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+
+                        {scaledServings !== baseServings ? (
+                          <div className="MetaText MetaText--muted" style={{ marginTop: 10 }}>
+                            Scaled from <strong>{baseServings}</strong> to <strong>{scaledServings}</strong> servings.
+                          </div>
+                        ) : null}
+                      </>
+                    );
+                  })()}
                 </div>
 
                 <div className="Panel">
