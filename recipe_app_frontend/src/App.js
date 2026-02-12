@@ -142,6 +142,26 @@ const SEED_RECIPES = [
 
 const ALL_TAG = "All";
 const SHOPPING_LIST_STORAGE_KEY = "recipe_shopping_list_v1";
+const FAVORITES_STORAGE_KEY = "recipe_favorites_v1";
+
+/**
+ * Safe localStorage access helpers (handles private mode / disabled storage).
+ */
+function safeStorageGet(key) {
+  try {
+    return window?.localStorage?.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeStorageSet(key, value) {
+  try {
+    window?.localStorage?.setItem(key, value);
+  } catch {
+    // ignore write failures (e.g., storage disabled/quota)
+  }
+}
 
 const DIFFICULTY_ORDER = ["Easy", "Medium", "Hard"];
 const SORT_OPTIONS = [
@@ -280,8 +300,10 @@ function App() {
   const [difficultySelected, setDifficultySelected] = useState(() => new Set());
 
   const [favorites, setFavorites] = useState(() => {
-    const raw = localStorage.getItem("recipe_favorites_v1");
-    return safeJsonParse(raw, []);
+    const raw = safeStorageGet(FAVORITES_STORAGE_KEY);
+    const parsed = safeJsonParse(raw, []);
+    // Validate shape to avoid breaking the app if storage is corrupted.
+    return Array.isArray(parsed) ? parsed.filter((x) => typeof x === "string") : [];
   });
 
   /**
@@ -289,7 +311,7 @@ function App() {
    * { id: string, text: string, key: string, checked: boolean, count: number, notes: string }
    */
   const [shoppingList, setShoppingList] = useState(() => {
-    const raw = localStorage.getItem(SHOPPING_LIST_STORAGE_KEY);
+    const raw = safeStorageGet(SHOPPING_LIST_STORAGE_KEY);
     const parsed = safeJsonParse(raw, []);
     return Array.isArray(parsed) ? parsed : [];
   });
@@ -508,20 +530,12 @@ function App() {
 
   // Persist favorites.
   useEffect(() => {
-    try {
-      localStorage.setItem("recipe_favorites_v1", JSON.stringify(favorites));
-    } catch {
-      // ignore
-    }
+    safeStorageSet(FAVORITES_STORAGE_KEY, JSON.stringify(favorites));
   }, [favorites]);
 
   // Persist shopping list.
   useEffect(() => {
-    try {
-      localStorage.setItem(SHOPPING_LIST_STORAGE_KEY, JSON.stringify(shoppingList));
-    } catch {
-      // ignore
-    }
+    safeStorageSet(SHOPPING_LIST_STORAGE_KEY, JSON.stringify(shoppingList));
   }, [shoppingList]);
 
   // Hash change listener.
