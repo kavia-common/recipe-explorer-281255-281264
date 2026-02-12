@@ -141,6 +141,7 @@ const SEED_RECIPES = [
 ];
 
 const ALL_TAG = "All";
+const SHOPPING_LIST_STORAGE_KEY = "recipe_shopping_list_v1";
 
 function normalizeText(value) {
   return String(value || "")
@@ -173,22 +174,69 @@ function getRecipeIdFromHash() {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+function safeJsonParse(raw, fallback) {
+  try {
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function makeShoppingItemId() {
+  // Good enough for local-only (no collision concerns at this scale).
+  return `item_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * Convert an ingredient line into a stable-ish key for merging.
+ * We intentionally keep this simple: lowercased and trimmed.
+ */
+function ingredientKey(text) {
+  return normalizeText(text).replace(/\s+/g, " ");
+}
+
+/**
+ * Try to extract a basic "name" for display/merging by stripping leading quantity-ish tokens.
+ * This is heuristic and intentionally lightweight.
+ */
+function ingredientDisplayName(text) {
+  const raw = String(text || "").trim();
+  // Remove common leading patterns like: "1/2", "2", "200g", "2 tbsp", etc.
+  // We keep it conservative; if it fails, we use the full string.
+  const cleaned = raw.replace(
+    /^(\d+([.,]\d+)?|\d+\/\d+)\s*(x\s*)?([a-zA-Z]+)?\s*/u,
+    ""
+  );
+  return cleaned.trim() || raw;
+}
+
 // PUBLIC_INTERFACE
 function App() {
   const [theme, setTheme] = useState("light");
   const [query, setQuery] = useState("");
   const [selectedTag, setSelectedTag] = useState(ALL_TAG);
   const [selectedRecipeId, setSelectedRecipeId] = useState(() => getRecipeIdFromHash());
+
   const [favorites, setFavorites] = useState(() => {
-    try {
-      const raw = localStorage.getItem("recipe_favorites_v1");
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
+    const raw = localStorage.getItem("recipe_favorites_v1");
+    return safeJsonParse(raw, []);
   });
 
+  /**
+   * shoppingList item shape:
+   * { id: string, text: string, key: string, checked: boolean, count: number, notes: string }
+   */
+  const [shoppingList, setShoppingList] = useState(() => {
+    const raw = localStorage.getItem(SHOPPING_LIST_STORAGE_KEY);
+    const parsed = safeJsonParse(raw, []);
+    return Array.isArray(parsed) ? parsed : [];
+  });
+
+  const [isShoppingListOpen, setIsShoppingListOpen] = useState(false);
+  const [newShoppingText, setNewShoppingText] = useState("");
+
   const searchInputRef = useRef(null);
+  const shoppingInputRef = useRef(null);
 
   const recipes = useMemo(() => {
     // Precompute a tiny search index so filtering stays snappy.
@@ -228,6 +276,15 @@ function App() {
     }
   }, [favorites]);
 
+  // Persist shopping list.
+  useEffect(() => {
+    try {
+      localStorage.setItem(SHOPPING_LIST_STORAGE_KEY, JSON.stringify(shoppingList));
+    } catch {
+      // ignore
+    }
+  }, [shoppingList]);
+
   // Hash change listener.
   useEffect(() => {
     function onHashChange() {
@@ -236,6 +293,13 @@ function App() {
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
+
+  // Focus shopping list input when opening the sheet.
+  useEffect(() => {
+    if (!isShoppingListOpen) return;
+    const id = window.setTimeout(() => shoppingInputRef.current?.focus(), 0);
+    return () => window.clearTimeout(id);
+  }, [isShoppingListOpen]);
 
   // Keyboard shortcut: "/" focuses search.
   useEffect(() => {
@@ -253,8 +317,10 @@ function App() {
         searchInputRef.current?.focus();
       }
       if (e.key === "Escape") {
-        // Close details if open, otherwise clear search.
-        if (selectedRecipeId) {
+        // Close shopping list if open, otherwise close details if open, otherwise clear search.
+        if (isShoppingListOpen) {
+          setIsShoppingListOpen(false);
+        } else if (selectedRecipeId) {
           navigateHome();
         } else if (query) {
           setQuery("");
@@ -263,7 +329,7 @@ function App() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [query, selectedRecipeId]);
+  }, [isShoppingListOpen, query, selectedRecipeId]);
 
   // PUBLIC_INTERFACE
   function toggleTheme() {
@@ -287,7 +353,111 @@ function App() {
     });
   }
 
+  function openShoppingList() {
+    setIsShoppingListOpen(true);
+  }
+
+  function closeShoppingList() {
+    setIsShoppingListOpen(false);
+  }
+
+  // PUBLIC_INTERFACE
+  function addItemsToShoppingList(items) {
+    /**
+     * Items can be:
+     * - string ingredient lines
+     * - objects { text }
+     *
+     * We merge on a simplified key so repeatedly adding from recipes increases count.
+     */
+    const normalized = (items || [])
+      .map((x) => (typeof x === "string" ? { text: x } : x))
+      .map((x) => ({
+        text: String(x?.text || "").trim(),
+      }))
+      .filter((x) => x.text);
+
+    if (normalized.length === 0) return;
+
+    setShoppingList((prev) => {
+      const byKey = new Map(prev.map((it) => [it.key, it]));
+      const updated = [...prev];
+
+      normalized.forEach(({ text }) => {
+        const key = ingredientKey(ingredientDisplayName(text) || text);
+        const existing = byKey.get(key);
+        if (existing) {
+          const next = { ...existing, count: (existing.count || 1) + 1, checked: false };
+          byKey.set(key, next);
+          const idx = updated.findIndex((u) => u.id === existing.id);
+          if (idx >= 0) updated[idx] = next;
+        } else {
+          const next = {
+            id: makeShoppingItemId(),
+            text,
+            key,
+            checked: false,
+            count: 1,
+            notes: "",
+          };
+          byKey.set(key, next);
+          updated.push(next);
+        }
+      });
+
+      // Keep unchecked first, then checked (so active tasks stay on top).
+      updated.sort((a, b) => Number(a.checked) - Number(b.checked));
+      return updated;
+    });
+  }
+
+  function addSingleShoppingItemFromInput() {
+    const text = String(newShoppingText || "").trim();
+    if (!text) return;
+    addItemsToShoppingList([text]);
+    setNewShoppingText("");
+  }
+
+  function toggleShoppingItemChecked(itemId) {
+    setShoppingList((prev) => {
+      const next = prev.map((it) => (it.id === itemId ? { ...it, checked: !it.checked } : it));
+      next.sort((a, b) => Number(a.checked) - Number(b.checked));
+      return next;
+    });
+  }
+
+  function removeShoppingItem(itemId) {
+    setShoppingList((prev) => prev.filter((it) => it.id !== itemId));
+  }
+
+  function updateShoppingItemNotes(itemId, notes) {
+    setShoppingList((prev) => prev.map((it) => (it.id === itemId ? { ...it, notes } : it)));
+  }
+
+  function decrementShoppingItem(itemId) {
+    setShoppingList((prev) =>
+      prev.flatMap((it) => {
+        if (it.id !== itemId) return [it];
+        const count = Math.max(1, Number(it.count || 1));
+        if (count <= 1) return [];
+        return [{ ...it, count: count - 1 }];
+      })
+    );
+  }
+
+  function clearCheckedItems() {
+    setShoppingList((prev) => prev.filter((it) => !it.checked));
+  }
+
+  function clearAllItems() {
+    setShoppingList([]);
+  }
+
   const favoriteCount = favorites.length;
+  const shoppingCount = shoppingList.reduce((acc, it) => acc + (Number(it.count || 1) || 1), 0);
+  const shoppingUncheckedCount = shoppingList
+    .filter((it) => !it.checked)
+    .reduce((acc, it) => acc + (Number(it.count || 1) || 1), 0);
 
   return (
     <div className="App">
@@ -304,6 +474,20 @@ function App() {
           </div>
 
           <div className="TopBar__actions">
+            <button
+              type="button"
+              className="Chip"
+              title="Shopping list"
+              onClick={openShoppingList}
+              aria-label={`Open shopping list (${shoppingUncheckedCount} items remaining)`}
+            >
+              <span aria-hidden="true">🧺</span>
+              <span className="Chip__label">Shopping</span>
+              <span className="Chip__count" aria-label={`${shoppingCount} items in shopping list`}>
+                {shoppingCount}
+              </span>
+            </button>
+
             <div className="Chip" title="Favorites">
               <span aria-hidden="true">❤️</span>
               <span className="Chip__label">Favorites</span>
@@ -386,7 +570,8 @@ function App() {
               <section className="GridHeader" aria-label="Browse recipes">
                 <h1 className="H1">Discover recipes</h1>
                 <p className="Lead">
-                  Tap a card to see ingredients and step-by-step instructions. Favorites are saved locally.
+                  Tap a card to see ingredients and step-by-step instructions. Favorites and your shopping list
+                  are saved locally.
                 </p>
               </section>
 
@@ -396,9 +581,7 @@ function App() {
                     🧁
                   </div>
                   <div className="EmptyState__title">No recipes found</div>
-                  <div className="EmptyState__desc">
-                    Try a different search term or switch tags.
-                  </div>
+                  <div className="EmptyState__desc">Try a different search term or switch tags.</div>
                   <button className="Btn" type="button" onClick={() => (setQuery(""), setSelectedTag(ALL_TAG))}>
                     Reset filters
                   </button>
@@ -447,9 +630,13 @@ function App() {
                           <button
                             type="button"
                             className="Btn Btn--small Btn--ghost"
-                            onClick={() => navigateToRecipe(recipe.id)}
+                            onClick={() => {
+                              addItemsToShoppingList(recipe.ingredients);
+                              openShoppingList();
+                            }}
+                            aria-label="Add ingredients to shopping list"
                           >
-                            View
+                            Add list
                           </button>
                         </div>
                       </article>
@@ -466,6 +653,17 @@ function App() {
                 </button>
 
                 <div className="Details__spacer" />
+
+                <button
+                  className="Btn Btn--ghost"
+                  type="button"
+                  onClick={() => {
+                    addItemsToShoppingList(selectedRecipe.ingredients);
+                    openShoppingList();
+                  }}
+                >
+                  🧺 Add to shopping list
+                </button>
 
                 <button
                   className={`Btn ${favorites.includes(selectedRecipe.id) ? "Btn--primary" : ""}`}
@@ -515,14 +713,35 @@ function App() {
 
               <div className="Details__body">
                 <div className="Panel">
-                  <h2 className="H2">Ingredients</h2>
+                  <div className="Panel__head">
+                    <h2 className="H2">Ingredients</h2>
+                    <button
+                      className="Btn Btn--small Btn--ghost"
+                      type="button"
+                      onClick={() => {
+                        addItemsToShoppingList(selectedRecipe.ingredients);
+                        openShoppingList();
+                      }}
+                    >
+                      Add all
+                    </button>
+                  </div>
+
                   <ul className="List">
                     {selectedRecipe.ingredients.map((item) => (
                       <li key={item} className="List__item">
                         <span className="List__bullet" aria-hidden="true">
                           •
                         </span>
-                        <span>{item}</span>
+                        <span className="List__text">{item}</span>
+                        <button
+                          className="Btn Btn--small Btn--ghost"
+                          type="button"
+                          onClick={() => addItemsToShoppingList([item])}
+                          aria-label={`Add to shopping list: ${item}`}
+                        >
+                          + List
+                        </button>
                       </li>
                     ))}
                   </ul>
@@ -545,7 +764,8 @@ function App() {
                 <div className="Panel Panel--note" role="note" aria-label="Tip">
                   <div className="Panel__noteTitle">Tip</div>
                   <div className="Panel__noteText">
-                    Press <strong>Esc</strong> to go back. Press <strong>/</strong> to jump to search.
+                    Press <strong>Esc</strong> to go back (or close the shopping list). Press <strong>/</strong>{" "}
+                    to jump to search.
                   </div>
                 </div>
               </div>
@@ -553,6 +773,139 @@ function App() {
           )}
         </div>
       </main>
+
+      {/* Shopping list sheet (modal) */}
+      {isShoppingListOpen ? (
+        <div
+          className="Modal"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Shopping list"
+          onMouseDown={(e) => {
+            // Click outside sheet closes.
+            if (e.target === e.currentTarget) closeShoppingList();
+          }}
+        >
+          <div className="Sheet">
+            <div className="Sheet__header">
+              <div className="Sheet__titleRow">
+                <div>
+                  <div className="Sheet__title">Shopping list</div>
+                  <div className="Sheet__subtitle">
+                    {shoppingUncheckedCount} remaining • {shoppingCount} total (counts included)
+                  </div>
+                </div>
+                <button className="Btn Btn--ghost" type="button" onClick={closeShoppingList} aria-label="Close">
+                  ✕
+                </button>
+              </div>
+
+              <div className="Sheet__composer" aria-label="Add a shopping item">
+                <label className="SrOnly" htmlFor="shopping-add">
+                  Add item
+                </label>
+                <input
+                  id="shopping-add"
+                  ref={shoppingInputRef}
+                  className="TextInput"
+                  value={newShoppingText}
+                  placeholder="Add an item (e.g., milk, 2 limes)…"
+                  onChange={(e) => setNewShoppingText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") addSingleShoppingItemFromInput();
+                  }}
+                />
+                <button
+                  className="Btn Btn--primary"
+                  type="button"
+                  onClick={addSingleShoppingItemFromInput}
+                  disabled={!String(newShoppingText || "").trim()}
+                >
+                  Add
+                </button>
+              </div>
+
+              <div className="Sheet__actions">
+                <button className="Btn Btn--small Btn--ghost" type="button" onClick={clearCheckedItems} disabled={!shoppingList.some((i) => i.checked)}>
+                  Clear checked
+                </button>
+                <button className="Btn Btn--small Btn--ghost" type="button" onClick={clearAllItems} disabled={shoppingList.length === 0}>
+                  Clear all
+                </button>
+              </div>
+            </div>
+
+            <div className="Sheet__body">
+              {shoppingList.length === 0 ? (
+                <div className="EmptyState" role="status">
+                  <div className="EmptyState__icon" aria-hidden="true">
+                    🧺
+                  </div>
+                  <div className="EmptyState__title">Your list is empty</div>
+                  <div className="EmptyState__desc">Add items here, or add ingredients from any recipe.</div>
+                </div>
+              ) : (
+                <ul className="ShopList" aria-label="Shopping list items">
+                  {shoppingList.map((item) => (
+                    <li key={item.id} className={`ShopItem ${item.checked ? "ShopItem--checked" : ""}`}>
+                      <label className="ShopItem__main">
+                        <input
+                          type="checkbox"
+                          checked={!!item.checked}
+                          onChange={() => toggleShoppingItemChecked(item.id)}
+                          aria-label={`Mark as ${item.checked ? "not purchased" : "purchased"}: ${item.text}`}
+                        />
+                        <div className="ShopItem__text">
+                          <div className="ShopItem__line">
+                            <span className="ShopItem__name">{item.text}</span>
+                            <span className="ShopItem__count" aria-label={`Count ${item.count || 1}`}>
+                              ×{item.count || 1}
+                            </span>
+                          </div>
+                          <input
+                            className="ShopItem__notes"
+                            value={item.notes || ""}
+                            placeholder="Notes (brand, size, etc.)"
+                            onChange={(e) => updateShoppingItemNotes(item.id, e.target.value)}
+                            aria-label={`Notes for ${item.text}`}
+                          />
+                        </div>
+                      </label>
+
+                      <div className="ShopItem__controls" aria-label="Item actions">
+                        <button
+                          className="Btn Btn--small Btn--ghost"
+                          type="button"
+                          onClick={() => decrementShoppingItem(item.id)}
+                          aria-label="Decrease count"
+                          disabled={(item.count || 1) <= 1}
+                        >
+                          −
+                        </button>
+                        <button
+                          className="Btn Btn--small Btn--ghost"
+                          type="button"
+                          onClick={() => removeShoppingItem(item.id)}
+                          aria-label="Remove item"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="Sheet__footer">
+              <div className="MetaText MetaText--muted">Tip: press Esc to close</div>
+              <button className="Btn Btn--primary" type="button" onClick={closeShoppingList}>
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <footer className="Footer">
         <div className="Container Footer__inner">
@@ -570,13 +923,7 @@ function App() {
             <span className="Footer__sep" aria-hidden="true">
               •
             </span>
-            <a
-              className="Link"
-              href="https://react.dev"
-              target="_blank"
-              rel="noreferrer"
-              aria-label="React documentation"
-            >
+            <a className="Link" href="https://react.dev" target="_blank" rel="noreferrer" aria-label="React documentation">
               React
             </a>
           </div>
