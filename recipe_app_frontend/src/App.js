@@ -1,47 +1,587 @@
-import React, { useState, useEffect } from 'react';
-import logo from './logo.svg';
-import './App.css';
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import "./App.css";
+
+/**
+ * Local-only seed data.
+ * Note: In a real app this would come from an API, but this project is frontend-only.
+ */
+const SEED_RECIPES = [
+  {
+    id: "lemon-garlic-pasta",
+    title: "Lemon Garlic Pasta",
+    description: "Bright, zesty pasta with garlic, herbs, and parmesan.",
+    timeMinutes: 20,
+    servings: 2,
+    difficulty: "Easy",
+    tags: ["Vegetarian", "Quick", "Dinner"],
+    calories: 520,
+    imageEmoji: "🍋",
+    ingredients: [
+      "200g spaghetti",
+      "3 cloves garlic, thinly sliced",
+      "2 tbsp olive oil",
+      "1 lemon (zest + juice)",
+      "1/4 cup grated parmesan",
+      "2 tbsp chopped parsley",
+      "Salt + black pepper",
+      "Chili flakes (optional)",
+    ],
+    instructions: [
+      "Boil pasta in salted water until al dente. Reserve 1/2 cup pasta water.",
+      "Gently sauté garlic in olive oil until fragrant (do not brown).",
+      "Toss pasta with garlic oil, lemon zest, and lemon juice.",
+      "Add parmesan and a splash of pasta water to create a glossy sauce.",
+      "Finish with parsley, pepper, and chili flakes to taste.",
+    ],
+  },
+  {
+    id: "rainbow-salad-bowl",
+    title: "Rainbow Salad Bowl",
+    description: "Crunchy veggies, creamy avocado, and a tangy herb dressing.",
+    timeMinutes: 15,
+    servings: 2,
+    difficulty: "Easy",
+    tags: ["Vegan", "Gluten-Free", "Lunch"],
+    calories: 410,
+    imageEmoji: "🥗",
+    ingredients: [
+      "2 cups mixed greens",
+      "1/2 cup shredded carrots",
+      "1/2 cup cucumber, sliced",
+      "1/2 cup cherry tomatoes",
+      "1/2 avocado, sliced",
+      "2 tbsp pumpkin seeds",
+      "Dressing: 2 tbsp olive oil + 1 tbsp lemon juice + 1 tsp Dijon",
+      "Salt + pepper",
+    ],
+    instructions: [
+      "Add greens and vegetables to a bowl.",
+      "Whisk dressing ingredients until emulsified; season to taste.",
+      "Pour dressing over salad and top with avocado and seeds.",
+    ],
+  },
+  {
+    id: "spicy-chickpea-tacos",
+    title: "Spicy Chickpea Tacos",
+    description: "Smoky chickpeas with crunchy slaw and lime crema (optional).",
+    timeMinutes: 25,
+    servings: 3,
+    difficulty: "Medium",
+    tags: ["Dairy-Free", "Dinner", "High-Protein"],
+    calories: 560,
+    imageEmoji: "🌮",
+    ingredients: [
+      "2 cans chickpeas, drained",
+      "1 tbsp olive oil",
+      "1 tsp smoked paprika",
+      "1/2 tsp cumin",
+      "1/2 tsp chili powder",
+      "Salt",
+      "6 small tortillas",
+      "Slaw: shredded cabbage + lime + pinch of salt",
+      "Optional: yogurt + lime for crema",
+    ],
+    instructions: [
+      "Pat chickpeas dry, then sauté in olive oil until slightly crisp.",
+      "Add spices and salt; toss until evenly coated.",
+      "Warm tortillas, assemble with slaw and chickpeas.",
+      "Top with crema (optional) and extra lime.",
+    ],
+  },
+  {
+    id: "berry-yogurt-parfait",
+    title: "Berry Yogurt Parfait",
+    description: "Layered yogurt, berries, and granola for a quick snack.",
+    timeMinutes: 5,
+    servings: 1,
+    difficulty: "Easy",
+    tags: ["Breakfast", "Snack", "No-Cook"],
+    calories: 320,
+    imageEmoji: "🍓",
+    ingredients: [
+      "1 cup Greek yogurt",
+      "1/2 cup mixed berries",
+      "1/3 cup granola",
+      "1 tsp honey (optional)",
+      "Pinch of cinnamon",
+    ],
+    instructions: [
+      "Layer yogurt, berries, and granola in a glass.",
+      "Drizzle honey if desired and sprinkle cinnamon.",
+      "Serve immediately.",
+    ],
+  },
+  {
+    id: "sheet-pan-salmon",
+    title: "Sheet-Pan Salmon & Veggies",
+    description: "One-pan salmon with roasted vegetables and a sweet-spicy glaze.",
+    timeMinutes: 30,
+    servings: 2,
+    difficulty: "Medium",
+    tags: ["Gluten-Free", "Dinner", "Seafood"],
+    calories: 610,
+    imageEmoji: "🐟",
+    ingredients: [
+      "2 salmon fillets",
+      "2 cups broccoli florets",
+      "1 bell pepper, sliced",
+      "1 tbsp olive oil",
+      "Glaze: 1 tbsp soy sauce + 1 tsp honey + 1 tsp sriracha",
+      "Salt + pepper",
+      "Lemon wedges",
+    ],
+    instructions: [
+      "Preheat oven to 220°C / 425°F. Line a sheet pan.",
+      "Toss veggies with olive oil, salt, pepper. Roast 10 minutes.",
+      "Add salmon and brush glaze over the top.",
+      "Roast 12–14 minutes until salmon flakes easily.",
+      "Serve with lemon wedges.",
+    ],
+  },
+];
+
+const ALL_TAG = "All";
+
+function normalizeText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .trim();
+}
+
+function formatMeta(recipe) {
+  return `${recipe.timeMinutes} min • ${recipe.servings} servings • ${recipe.difficulty}`;
+}
+
+function buildSearchIndex(recipe) {
+  const combined = [
+    recipe.title,
+    recipe.description,
+    recipe.difficulty,
+    (recipe.tags || []).join(" "),
+    (recipe.ingredients || []).join(" "),
+  ].join(" ");
+  return normalizeText(combined);
+}
+
+/**
+ * Lightweight client-side routing (no react-router dependency).
+ * We use URL hash: #/recipe/<id>
+ */
+function getRecipeIdFromHash() {
+  const hash = window.location.hash || "";
+  const match = hash.match(/^#\/recipe\/(.+)$/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
 
 // PUBLIC_INTERFACE
 function App() {
-  const [theme, setTheme] = useState('light');
+  const [theme, setTheme] = useState("light");
+  const [query, setQuery] = useState("");
+  const [selectedTag, setSelectedTag] = useState(ALL_TAG);
+  const [selectedRecipeId, setSelectedRecipeId] = useState(() => getRecipeIdFromHash());
+  const [favorites, setFavorites] = useState(() => {
+    try {
+      const raw = localStorage.getItem("recipe_favorites_v1");
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
 
-  // Effect to apply theme to document element
+  const searchInputRef = useRef(null);
+
+  const recipes = useMemo(() => {
+    // Precompute a tiny search index so filtering stays snappy.
+    return SEED_RECIPES.map((r) => ({ ...r, _searchIndex: buildSearchIndex(r) }));
+  }, []);
+
+  const tags = useMemo(() => {
+    const set = new Set();
+    recipes.forEach((r) => (r.tags || []).forEach((t) => set.add(t)));
+    return [ALL_TAG, ...Array.from(set).sort((a, b) => a.localeCompare(b))];
+  }, [recipes]);
+
+  const filteredRecipes = useMemo(() => {
+    const q = normalizeText(query);
+    return recipes
+      .filter((r) => (selectedTag === ALL_TAG ? true : (r.tags || []).includes(selectedTag)))
+      .filter((r) => (q ? r._searchIndex.includes(q) : true))
+      .sort((a, b) => a.title.localeCompare(b.title));
+  }, [recipes, query, selectedTag]);
+
+  const selectedRecipe = useMemo(() => {
+    if (!selectedRecipeId) return null;
+    return recipes.find((r) => r.id === selectedRecipeId) || null;
+  }, [recipes, selectedRecipeId]);
+
+  // Apply theme to document root.
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
+    document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
 
+  // Persist favorites.
+  useEffect(() => {
+    try {
+      localStorage.setItem("recipe_favorites_v1", JSON.stringify(favorites));
+    } catch {
+      // ignore
+    }
+  }, [favorites]);
+
+  // Hash change listener.
+  useEffect(() => {
+    function onHashChange() {
+      setSelectedRecipeId(getRecipeIdFromHash());
+    }
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
+  // Keyboard shortcut: "/" focuses search.
+  useEffect(() => {
+    function onKeyDown(e) {
+      const isInputLike =
+        e.target instanceof HTMLElement &&
+        (e.target.tagName === "INPUT" ||
+          e.target.tagName === "TEXTAREA" ||
+          e.target.getAttribute("contenteditable") === "true");
+
+      if (isInputLike) return;
+
+      if (e.key === "/") {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+      if (e.key === "Escape") {
+        // Close details if open, otherwise clear search.
+        if (selectedRecipeId) {
+          navigateHome();
+        } else if (query) {
+          setQuery("");
+        }
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [query, selectedRecipeId]);
+
   // PUBLIC_INTERFACE
-  const toggleTheme = () => {
-    setTheme(prevTheme => prevTheme === 'light' ? 'dark' : 'light');
-  };
+  function toggleTheme() {
+    setTheme((prev) => (prev === "light" ? "dark" : "light"));
+  }
+
+  function navigateToRecipe(id) {
+    window.location.hash = `#/recipe/${encodeURIComponent(id)}`;
+  }
+
+  function navigateHome() {
+    window.location.hash = "#/";
+  }
+
+  function toggleFavorite(recipeId) {
+    setFavorites((prev) => {
+      const set = new Set(prev);
+      if (set.has(recipeId)) set.delete(recipeId);
+      else set.add(recipeId);
+      return Array.from(set);
+    });
+  }
+
+  const favoriteCount = favorites.length;
 
   return (
     <div className="App">
-      <header className="App-header">
-        <button 
-          className="theme-toggle" 
-          onClick={toggleTheme}
-          aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
-        >
-          {theme === 'light' ? '🌙 Dark' : '☀️ Light'}
-        </button>
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <p>
-          Current theme: <strong>{theme}</strong>
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
+      <header className="TopBar">
+        <div className="TopBar__inner">
+          <div className="Brand" role="banner" aria-label="Recipe Explorer">
+            <div className="Brand__mark" aria-hidden="true">
+              🍳
+            </div>
+            <div className="Brand__text">
+              <div className="Brand__title">Recipe Explorer</div>
+              <div className="Brand__subtitle">Browse, search, and cook something fun</div>
+            </div>
+          </div>
+
+          <div className="TopBar__actions">
+            <div className="Chip" title="Favorites">
+              <span aria-hidden="true">❤️</span>
+              <span className="Chip__label">Favorites</span>
+              <span className="Chip__count" aria-label={`${favoriteCount} favorites`}>
+                {favoriteCount}
+              </span>
+            </div>
+
+            <button
+              className="Btn Btn--ghost"
+              onClick={toggleTheme}
+              aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
+              type="button"
+            >
+              {theme === "light" ? "Dark" : "Light"} mode
+            </button>
+          </div>
+        </div>
+
+        <div className="TopBar__controls">
+          <div className="Container">
+            <div className="Controls">
+              <div className="Search">
+                <label className="SrOnly" htmlFor="recipe-search">
+                  Search recipes
+                </label>
+                <div className="Search__icon" aria-hidden="true">
+                  ⌕
+                </div>
+                <input
+                  id="recipe-search"
+                  ref={searchInputRef}
+                  className="Search__input"
+                  placeholder="Search recipes (press / to focus)…"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  type="search"
+                  autoComplete="off"
+                />
+                {query ? (
+                  <button className="Search__clear" type="button" onClick={() => setQuery("")}>
+                    Clear
+                  </button>
+                ) : (
+                  <div className="Search__hint" aria-hidden="true">
+                    /
+                  </div>
+                )}
+              </div>
+
+              <div className="Filters" aria-label="Recipe tags">
+                {tags.map((tag) => (
+                  <button
+                    key={tag}
+                    type="button"
+                    className={`TagPill ${selectedTag === tag ? "TagPill--active" : ""}`}
+                    onClick={() => setSelectedTag(tag)}
+                    aria-pressed={selectedTag === tag}
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
+
+              <div className="Controls__meta" aria-live="polite">
+                <span className="MetaText">
+                  Showing <strong>{filteredRecipes.length}</strong> of <strong>{recipes.length}</strong>
+                </span>
+                <span className="MetaText MetaText--muted">Esc closes • / focuses search</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </header>
+
+      <main className="Main" role="main">
+        <div className="Container">
+          {!selectedRecipe ? (
+            <>
+              <section className="GridHeader" aria-label="Browse recipes">
+                <h1 className="H1">Discover recipes</h1>
+                <p className="Lead">
+                  Tap a card to see ingredients and step-by-step instructions. Favorites are saved locally.
+                </p>
+              </section>
+
+              {filteredRecipes.length === 0 ? (
+                <div className="EmptyState" role="status">
+                  <div className="EmptyState__icon" aria-hidden="true">
+                    🧁
+                  </div>
+                  <div className="EmptyState__title">No recipes found</div>
+                  <div className="EmptyState__desc">
+                    Try a different search term or switch tags.
+                  </div>
+                  <button className="Btn" type="button" onClick={() => (setQuery(""), setSelectedTag(ALL_TAG))}>
+                    Reset filters
+                  </button>
+                </div>
+              ) : (
+                <section className="Grid" aria-label="Recipe results">
+                  {filteredRecipes.map((recipe) => {
+                    const isFav = favorites.includes(recipe.id);
+                    return (
+                      <article key={recipe.id} className="Card">
+                        <button
+                          type="button"
+                          className="Card__click"
+                          onClick={() => navigateToRecipe(recipe.id)}
+                          aria-label={`Open recipe: ${recipe.title}`}
+                        >
+                          <div className="Card__top">
+                            <div className="Card__emoji" aria-hidden="true">
+                              {recipe.imageEmoji}
+                            </div>
+                            <div className="Card__fav" aria-hidden="true">
+                              {isFav ? "❤️" : "🤍"}
+                            </div>
+                          </div>
+                          <h2 className="Card__title">{recipe.title}</h2>
+                          <p className="Card__desc">{recipe.description}</p>
+                          <div className="Card__meta">{formatMeta(recipe)}</div>
+                          <div className="Card__tags" aria-label="Tags">
+                            {(recipe.tags || []).slice(0, 3).map((t) => (
+                              <span key={t} className="Badge">
+                                {t}
+                              </span>
+                            ))}
+                          </div>
+                        </button>
+
+                        <div className="Card__actions">
+                          <button
+                            type="button"
+                            className={`Btn Btn--small ${isFav ? "Btn--primary" : "Btn--ghost"}`}
+                            onClick={() => toggleFavorite(recipe.id)}
+                            aria-label={`${isFav ? "Remove from" : "Add to"} favorites`}
+                          >
+                            {isFav ? "Saved" : "Save"}
+                          </button>
+                          <button
+                            type="button"
+                            className="Btn Btn--small Btn--ghost"
+                            onClick={() => navigateToRecipe(recipe.id)}
+                          >
+                            View
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </section>
+              )}
+            </>
+          ) : (
+            <section className="Details" aria-label="Recipe details">
+              <div className="Details__top">
+                <button className="Btn Btn--ghost" type="button" onClick={navigateHome}>
+                  ← Back
+                </button>
+
+                <div className="Details__spacer" />
+
+                <button
+                  className={`Btn ${favorites.includes(selectedRecipe.id) ? "Btn--primary" : ""}`}
+                  type="button"
+                  onClick={() => toggleFavorite(selectedRecipe.id)}
+                >
+                  {favorites.includes(selectedRecipe.id) ? "❤️ Saved" : "🤍 Save"}
+                </button>
+              </div>
+
+              <div className="Details__header">
+                <div className="Details__emoji" aria-hidden="true">
+                  {selectedRecipe.imageEmoji}
+                </div>
+                <div className="Details__headings">
+                  <h1 className="H1">{selectedRecipe.title}</h1>
+                  <p className="Lead">{selectedRecipe.description}</p>
+
+                  <div className="Details__facts" aria-label="Recipe facts">
+                    <div className="Fact">
+                      <div className="Fact__label">Time</div>
+                      <div className="Fact__value">{selectedRecipe.timeMinutes} min</div>
+                    </div>
+                    <div className="Fact">
+                      <div className="Fact__label">Servings</div>
+                      <div className="Fact__value">{selectedRecipe.servings}</div>
+                    </div>
+                    <div className="Fact">
+                      <div className="Fact__label">Difficulty</div>
+                      <div className="Fact__value">{selectedRecipe.difficulty}</div>
+                    </div>
+                    <div className="Fact">
+                      <div className="Fact__label">Calories</div>
+                      <div className="Fact__value">{selectedRecipe.calories}</div>
+                    </div>
+                  </div>
+
+                  <div className="Details__tagRow" aria-label="Tags">
+                    {(selectedRecipe.tags || []).map((t) => (
+                      <span key={t} className="Badge Badge--solid">
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="Details__body">
+                <div className="Panel">
+                  <h2 className="H2">Ingredients</h2>
+                  <ul className="List">
+                    {selectedRecipe.ingredients.map((item) => (
+                      <li key={item} className="List__item">
+                        <span className="List__bullet" aria-hidden="true">
+                          •
+                        </span>
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="Panel">
+                  <h2 className="H2">Instructions</h2>
+                  <ol className="Steps">
+                    {selectedRecipe.instructions.map((step, idx) => (
+                      <li key={`${selectedRecipe.id}-step-${idx}`} className="Steps__item">
+                        <div className="Steps__num" aria-hidden="true">
+                          {idx + 1}
+                        </div>
+                        <div className="Steps__text">{step}</div>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+
+                <div className="Panel Panel--note" role="note" aria-label="Tip">
+                  <div className="Panel__noteTitle">Tip</div>
+                  <div className="Panel__noteText">
+                    Press <strong>Esc</strong> to go back. Press <strong>/</strong> to jump to search.
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
+        </div>
+      </main>
+
+      <footer className="Footer">
+        <div className="Container Footer__inner">
+          <div className="Footer__left">
+            <span className="Footer__brand">Rainbow Burst</span>
+            <span className="Footer__sep" aria-hidden="true">
+              •
+            </span>
+            <span className="Footer__muted">Frontend-only demo</span>
+          </div>
+          <div className="Footer__right">
+            <a className="Link" href="#/" onClick={(e) => (e.preventDefault(), navigateHome())}>
+              Home
+            </a>
+            <span className="Footer__sep" aria-hidden="true">
+              •
+            </span>
+            <a
+              className="Link"
+              href="https://react.dev"
+              target="_blank"
+              rel="noreferrer"
+              aria-label="React documentation"
+            >
+              React
+            </a>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
