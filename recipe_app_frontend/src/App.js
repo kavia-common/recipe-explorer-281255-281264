@@ -235,6 +235,10 @@ function App() {
   const [isShoppingListOpen, setIsShoppingListOpen] = useState(false);
   const [newShoppingText, setNewShoppingText] = useState("");
 
+  // Cooking mode (step-by-step)
+  const [isCookMode, setIsCookMode] = useState(false);
+  const [cookStepIndex, setCookStepIndex] = useState(0);
+
   const searchInputRef = useRef(null);
   const shoppingInputRef = useRef(null);
 
@@ -261,6 +265,19 @@ function App() {
     if (!selectedRecipeId) return null;
     return recipes.find((r) => r.id === selectedRecipeId) || null;
   }, [recipes, selectedRecipeId]);
+
+  // Reset cook mode when switching recipes.
+  useEffect(() => {
+    setIsCookMode(false);
+    setCookStepIndex(0);
+  }, [selectedRecipeId]);
+
+  // Clamp step index if instructions length changes.
+  useEffect(() => {
+    if (!selectedRecipe) return;
+    const total = Array.isArray(selectedRecipe.instructions) ? selectedRecipe.instructions.length : 0;
+    setCookStepIndex((prev) => Math.max(0, Math.min(prev, Math.max(0, total - 1))));
+  }, [selectedRecipe]);
 
   // Apply theme to document root.
   useEffect(() => {
@@ -312,13 +329,31 @@ function App() {
 
       if (isInputLike) return;
 
+      // Cooking mode navigation: ArrowLeft/ArrowRight to move steps.
+      if (isCookMode && selectedRecipe) {
+        const total = Array.isArray(selectedRecipe.instructions) ? selectedRecipe.instructions.length : 0;
+
+        if (e.key === "ArrowLeft") {
+          e.preventDefault();
+          setCookStepIndex((prev) => Math.max(0, prev - 1));
+          return;
+        }
+        if (e.key === "ArrowRight") {
+          e.preventDefault();
+          setCookStepIndex((prev) => Math.min(Math.max(0, total - 1), prev + 1));
+          return;
+        }
+      }
+
       if (e.key === "/") {
         e.preventDefault();
         searchInputRef.current?.focus();
       }
       if (e.key === "Escape") {
-        // Close shopping list if open, otherwise close details if open, otherwise clear search.
-        if (isShoppingListOpen) {
+        // Priority: exit cook mode, then close shopping list, then close details, then clear search.
+        if (isCookMode) {
+          setIsCookMode(false);
+        } else if (isShoppingListOpen) {
           setIsShoppingListOpen(false);
         } else if (selectedRecipeId) {
           navigateHome();
@@ -329,7 +364,7 @@ function App() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isShoppingListOpen, query, selectedRecipeId]);
+  }, [isCookMode, isShoppingListOpen, query, selectedRecipe, selectedRecipeId]);
 
   // PUBLIC_INTERFACE
   function toggleTheme() {
@@ -359,6 +394,23 @@ function App() {
 
   function closeShoppingList() {
     setIsShoppingListOpen(false);
+  }
+
+  function openCookMode() {
+    setCookStepIndex(0);
+    setIsCookMode(true);
+  }
+
+  function closeCookMode() {
+    setIsCookMode(false);
+  }
+
+  function goCookPrev(totalSteps) {
+    setCookStepIndex((prev) => Math.max(0, prev - 1));
+  }
+
+  function goCookNext(totalSteps) {
+    setCookStepIndex((prev) => Math.min(Math.max(0, totalSteps - 1), prev + 1));
   }
 
   // PUBLIC_INTERFACE
@@ -748,24 +800,99 @@ function App() {
                 </div>
 
                 <div className="Panel">
-                  <h2 className="H2">Instructions</h2>
-                  <ol className="Steps">
-                    {selectedRecipe.instructions.map((step, idx) => (
-                      <li key={`${selectedRecipe.id}-step-${idx}`} className="Steps__item">
-                        <div className="Steps__num" aria-hidden="true">
-                          {idx + 1}
+                  <div className="Panel__head">
+                    <h2 className="H2">Instructions</h2>
+                    {!isCookMode ? (
+                      <button className="Btn Btn--small Btn--primary" type="button" onClick={openCookMode}>
+                        Start cook mode
+                      </button>
+                    ) : (
+                      <button className="Btn Btn--small Btn--ghost" type="button" onClick={closeCookMode}>
+                        Exit cook mode
+                      </button>
+                    )}
+                  </div>
+
+                  {!isCookMode ? (
+                    <ol className="Steps" aria-label="All instruction steps">
+                      {selectedRecipe.instructions.map((step, idx) => (
+                        <li key={`${selectedRecipe.id}-step-${idx}`} className="Steps__item">
+                          <div className="Steps__num" aria-hidden="true">
+                            {idx + 1}
+                          </div>
+                          <div className="Steps__text">{step}</div>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    (() => {
+                      const total = selectedRecipe.instructions.length;
+                      const stepText = selectedRecipe.instructions[cookStepIndex] || "";
+                      const isFirst = cookStepIndex <= 0;
+                      const isLast = cookStepIndex >= total - 1;
+
+                      return (
+                        <div className="Cook" role="region" aria-label="Cooking mode step-by-step">
+                          <div className="Cook__progress" aria-label={`Step ${cookStepIndex + 1} of ${total}`}>
+                            <div className="Cook__stepNum">
+                              Step <strong>{cookStepIndex + 1}</strong> of <strong>{total}</strong>
+                            </div>
+                            <div className="Cook__bar" aria-hidden="true">
+                              <div
+                                className="Cook__barFill"
+                                style={{
+                                  width: `${total > 0 ? Math.round(((cookStepIndex + 1) / total) * 100) : 0}%`,
+                                }}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="Cook__card" aria-live="polite">
+                            <div className="Cook__cardNum" aria-hidden="true">
+                              {cookStepIndex + 1}
+                            </div>
+                            <div className="Cook__cardText">{stepText}</div>
+                          </div>
+
+                          <div className="Cook__actions" aria-label="Step navigation">
+                            <button
+                              className="Btn Btn--ghost"
+                              type="button"
+                              onClick={() => goCookPrev(total)}
+                              disabled={isFirst}
+                            >
+                              ← Previous
+                            </button>
+                            <button
+                              className={`Btn ${isLast ? "Btn--primary" : "Btn--ghost"}`}
+                              type="button"
+                              onClick={() => goCookNext(total)}
+                              disabled={isLast}
+                            >
+                              Next →
+                            </button>
+                          </div>
+
+                          <div className="Cook__hint MetaText MetaText--muted">
+                            Tip: use <strong>←</strong>/<strong>→</strong> to navigate • <strong>Esc</strong> to exit
+                          </div>
                         </div>
-                        <div className="Steps__text">{step}</div>
-                      </li>
-                    ))}
-                  </ol>
+                      );
+                    })()
+                  )}
                 </div>
 
                 <div className="Panel Panel--note" role="note" aria-label="Tip">
                   <div className="Panel__noteTitle">Tip</div>
                   <div className="Panel__noteText">
-                    Press <strong>Esc</strong> to go back (or close the shopping list). Press <strong>/</strong>{" "}
-                    to jump to search.
+                    Press <strong>Esc</strong> to {isCookMode ? "exit cook mode" : "go back (or close the shopping list)"}.
+                    Press <strong>/</strong> to jump to search.
+                    {isCookMode ? (
+                      <>
+                        {" "}
+                        Use <strong>←</strong>/<strong>→</strong> to move between steps.
+                      </>
+                    ) : null}
                   </div>
                 </div>
               </div>

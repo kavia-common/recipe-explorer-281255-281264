@@ -852,6 +852,90 @@ textarea:disabled {
   line-height: 1.55;
 }
 
+/* Cook mode (step-by-step) */
+.Cook {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.Cook__progress {
+  display: grid;
+  gap: 8px;
+}
+
+.Cook__stepNum {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.Cook__bar {
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(11, 18, 32, 0.04);
+  overflow: hidden;
+}
+
+[data-theme="dark"] .Cook__bar {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.Cook__barFill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #ff1fa8 0%, #6d28ff 56%, #00e6a8 120%);
+  box-shadow: 0 10px 22px rgba(255, 31, 168, 0.16);
+}
+
+.Cook__card {
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255, 31, 168, 0.1), rgba(109, 40, 255, 0.06));
+  padding: 14px 14px;
+  display: grid;
+  grid-template-columns: 54px 1fr;
+  gap: 12px;
+  align-items: start;
+  box-shadow: var(--shadow-sm);
+}
+
+[data-theme="dark"] .Cook__card {
+  background: linear-gradient(180deg, rgba(255, 31, 168, 0.16), rgba(109, 40, 255, 0.08));
+}
+
+.Cook__cardNum {
+  width: 54px;
+  height: 54px;
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 230, 168, 0.18);
+  border: 1px solid rgba(0, 230, 168, 0.34);
+  font-weight: 950;
+  font-size: 18px;
+}
+
+.Cook__cardText {
+  font-weight: 750;
+  line-height: 1.6;
+  font-size: 15px;
+}
+
+.Cook__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.Cook__hint {
+  font-size: 13px;
+}
+
 /* Empty state */
 .EmptyState {
   border: 1px dashed rgba(255, 46, 166, 0.72);
